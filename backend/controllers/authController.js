@@ -1,3 +1,4 @@
+// controllers/authController.js
 const User = require('../models/User');
 const OTP = require('../models/OTP');
 const jwt = require('jsonwebtoken');
@@ -99,15 +100,24 @@ const verifyOTP = async (req, res) => {
             { expiresIn: '7d' }
         );
         
+        // Return user with both _id and id for consistency
         res.status(200).json({
             success: true,
             message: 'Account created successfully',
             token,
             user: {
                 id: user._id,
+                _id: user._id,
                 name: user.name,
                 email: user.email,
-                role: user.role
+                role: user.role,
+                profilePicture: user.profilePicture || '',
+                isVerified: user.isVerified,
+                mobileNumber: user.mobileNumber,
+                bio: user.bio || '',
+                education: user.education || '',
+                skills: user.skills || [],
+                socialLinks: user.socialLinks || {}
             }
         });
         
@@ -150,15 +160,24 @@ const login = async (req, res) => {
             { expiresIn: '7d' }
         );
         
+        // Return user with both _id and id for consistency
         res.status(200).json({
             success: true,
             message: 'Login successful',
             token,
             user: {
                 id: user._id,
+                _id: user._id,
                 name: user.name,
                 email: user.email,
-                role: user.role
+                role: user.role,
+                profilePicture: user.profilePicture || '',
+                isVerified: user.isVerified,
+                mobileNumber: user.mobileNumber,
+                bio: user.bio || '',
+                education: user.education || '',
+                skills: user.skills || [],
+                socialLinks: user.socialLinks || {}
             }
         });
     } catch (error) {
@@ -169,11 +188,23 @@ const login = async (req, res) => {
 
 const getMe = async (req, res) => {
     try {
-        const user = await User.findById(req.user.userId).select('-password');
+        const user = await User.findById(req.user.userId)
+            .select('-password')
+            .populate('enrolledCourses', 'title thumbnail description price')
+            .populate('createdCourses', 'title thumbnail description price isPublished');
+
         if (!user) {
             return res.status(404).json({ success: false, message: 'User not found' });
         }
-        res.status(200).json({ success: true, user });
+        
+        // Return user with both _id and id for consistency
+        res.status(200).json({ 
+            success: true, 
+            user: {
+                ...user.toObject(),
+                id: user._id
+            }
+        });
     } catch (error) {
         console.error('❌ Get Me Error:', error);
         res.status(500).json({ success: false, message: 'Error fetching user' });

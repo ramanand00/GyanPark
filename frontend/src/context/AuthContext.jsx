@@ -1,3 +1,4 @@
+// context/AuthContext.jsx
 import React, { createContext, useState, useContext, useEffect } from 'react';
 import api from '../utils/api';
 
@@ -21,8 +22,14 @@ export const AuthProvider = ({ children }) => {
     const fetchUser = async () => {
         try {
             const response = await api.get('/auth/me');
-            setUser(response.data);
+            // Ensure user has an id field
+            const userData = response.data.user || response.data;
+            setUser({
+                ...userData,
+                id: userData._id || userData.id,
+            });
         } catch (error) {
+            console.error('Fetch user error:', error);
             localStorage.removeItem('token');
         } finally {
             setLoading(false);
@@ -31,9 +38,13 @@ export const AuthProvider = ({ children }) => {
 
     const login = async (email, password) => {
         const response = await api.post('/auth/login', { email, password });
-        const { token, user } = response.data;
+        const { token, user: userData } = response.data;
         localStorage.setItem('token', token);
-        setUser(user);
+        // Ensure user has an id field
+        setUser({
+            ...userData,
+            id: userData._id || userData.id,
+        });
         return response.data;
     };
 
