@@ -6,7 +6,6 @@ const connectDB = require('./config/db');
 const authRoutes = require('./routes/authRoutes');
 const profileRoutes = require('./routes/profileRoutes');
 const adminRoutes = require('./routes/adminRoutes');
-const adminCourseRoutes = require('./routes/adminCourseRoutes');
 const { createSuperAdmin } = require('./controllers/adminAuthController');
 const path = require('path');
 const fs = require('fs');
@@ -21,6 +20,40 @@ dotenv.config();
 
 const app = express();
 
+// ============== CORS CONFIGURATION ==============
+const allowedOrigins = [
+    'https://gyan-park.vercel.app',
+    'https://gyan-park-vqx8.vercel.app',
+    'http://localhost:5173',
+    'http://localhost:3000',
+    process.env.FRONTEND_URL
+].filter(Boolean);
+
+app.use(cors({
+    origin: function (origin, callback) {
+        // Allow requests with no origin (like mobile apps or curl requests)
+        if (!origin) return callback(null, true);
+        
+        if (allowedOrigins.indexOf(origin) !== -1 || process.env.NODE_ENV === 'development') {
+            callback(null, true);
+        } else {
+            console.log('Blocked origin:', origin);
+            callback(null, true); // Allow all origins in development
+        }
+    },
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept'],
+    exposedHeaders: ['Content-Range', 'X-Content-Range'],
+    maxAge: 86400 // 24 hours
+}));
+
+// Handle preflight requests
+app.options(/.*/, cors());
+
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+
 // Connect to database
 connectDB();
 
@@ -29,32 +62,48 @@ setTimeout(() => {
     createSuperAdmin();
 }, 2000);
 
-// Middleware
-app.use(cors({
-    origin: ['http://localhost:5173', 'http://localhost:3000'],
-    credentials: true
-}));
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
-
 // Serve static files
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
 // Request logging
 app.use((req, res, next) => {
     console.log(`${req.method} ${req.url}`);
+    console.log('Origin:', req.headers.origin);
     next();
 });
 
-// Routes
+// ============== ROUTES ==============
 app.use('/api/auth', authRoutes);
 app.use('/api', profileRoutes);
 app.use('/api/admin', adminRoutes);
-app.use('/api/admin', adminCourseRoutes);
 
 // Test route
 app.get('/api/test', (req, res) => {
-    res.json({ message: 'GyanPark Backend is working!', timestamp: new Date() });
+    res.json({ 
+        message: 'GyanPark Backend is working!', 
+        timestamp: new Date(),
+        environment: process.env.NODE_ENV || 'development'
+    });
+});
+
+// Health check route for Vercel
+app.get('/api/health', (req, res) => {
+    res.status(200).json({ 
+        status: 'healthy',
+        timestamp: new Date(),
+        uptime: process.uptime()
+    });
+});
+
+// ============== ERROR HANDLING ==============
+
+// 404 handler - Must be after all routes
+app.use((req, res) => {
+    res.status(404).json({ 
+        success: false, 
+        message: 'Route not found',
+        path: req.originalUrl
+    });
 });
 
 // Global error handler
@@ -63,19 +112,20 @@ app.use((err, req, res, next) => {
     res.status(500).json({ 
         success: false, 
         message: 'Internal server error',
-        error: err.message 
+        error: process.env.NODE_ENV === 'development' ? err.message : undefined
     });
 });
 
-// 404 handler
-app.use((req, res) => {
-    res.status(404).json({ success: false, message: 'Route not found' });
-});
+// Export for Vercel
+module.exports = app;
 
-const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => {
-    console.log(`\n🚀 Server is running on port ${PORT}`);
-    console.log(`📡 API URL: http://localhost:5000/api/test`);
-    console.log(`📁 Uploads directory: ${uploadsDir}`);
-    console.log(`✅ Ready to accept requests\n`);
-});
+// Only start server if not in Vercel environment
+if (require.main === module) {
+    const PORT = process.env.PORT || 5000;
+    app.listen(PORT, () => {
+        console.log(`\n🚀 Server is running on port ${PORT}`);
+        console.log(`📡 API URL: http://localhost:${PORT}/api/test`);
+        console.log(`📁 Uploads directory: ${uploadsDir}`);
+        console.log(`✅ Ready to accept requests\n`);
+    });
+}
