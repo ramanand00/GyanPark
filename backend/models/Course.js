@@ -36,7 +36,7 @@ const courseSchema = new mongoose.Schema({
     admin: {
         type: mongoose.Schema.Types.ObjectId,
         ref: 'Admin',
-        required: true,
+        // Remove required: true to allow teacher-created courses
     },
     students: [{
         type: mongoose.Schema.Types.ObjectId,
@@ -61,6 +61,10 @@ const courseSchema = new mongoose.Schema({
         default: false,
     },
     createdBy: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'User',
+    },
+    createdByAdmin: {
         type: mongoose.Schema.Types.ObjectId,
         ref: 'Admin',
     },

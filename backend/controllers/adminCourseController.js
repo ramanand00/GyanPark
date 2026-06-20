@@ -4,7 +4,6 @@ const Semester = require('../models/Semester');
 const Book = require('../models/Book');
 const Chapter = require('../models/Chapter');
 const Note = require('../models/Note');
-const User = require('../models/User');
 const Admin = require('../models/Admin');
 const fs = require('fs');
 const path = require('path');
@@ -14,7 +13,7 @@ const path = require('path');
 // Create Course
 const createCourse = async (req, res) => {
     try {
-        console.log('Creating course with admin ID:', req.adminId);
+        console.log('📚 Creating course with admin ID:', req.adminId);
         
         const { title, description, category, level, price, thumbnail } = req.body;
 
@@ -49,7 +48,7 @@ const createCourse = async (req, res) => {
 
         await course.save();
 
-        console.log('Course created successfully:', course._id);
+        console.log('✅ Course created successfully:', course._id);
 
         res.status(201).json({
             success: true,
@@ -57,11 +56,11 @@ const createCourse = async (req, res) => {
             course
         });
     } catch (error) {
-        console.error('Create course error:', error);
+        console.error('❌ Create course error:', error);
         res.status(500).json({
             success: false,
             message: error.message,
-            details: error.stack
+            stack: error.stack
         });
     }
 };
@@ -69,7 +68,43 @@ const createCourse = async (req, res) => {
 // Get All Courses (Admin)
 const getAllAdminCourses = async (req, res) => {
     try {
+        console.log('📚 Fetching courses for admin:', req.adminId);
+        
+        // First check if admin exists
+        const admin = await Admin.findById(req.adminId);
+        if (!admin) {
+            return res.status(404).json({
+                success: false,
+                message: 'Admin not found'
+            });
+        }
+
+        // Get courses for this admin
         const courses = await Course.find({ admin: req.adminId })
+            .populate('semesters')
+            .sort('-createdAt');
+
+        console.log(`✅ Found ${courses.length} courses for admin`);
+
+        res.json({
+            success: true,
+            courses: courses || []
+        });
+    } catch (error) {
+        console.error('❌ Get courses error:', error);
+        res.status(500).json({
+            success: false,
+            message: error.message,
+            stack: error.stack
+        });
+    }
+};
+
+// Get All Courses (Super Admin - all courses)
+const getAllCoursesAdmin = async (req, res) => {
+    try {
+        const courses = await Course.find()
+            .populate('admin', 'name email')
             .populate('semesters')
             .sort('-createdAt');
 
@@ -78,7 +113,7 @@ const getAllAdminCourses = async (req, res) => {
             courses
         });
     } catch (error) {
-        console.error('Get courses error:', error);
+        console.error('Get all courses admin error:', error);
         res.status(500).json({
             success: false,
             message: error.message
@@ -903,27 +938,6 @@ const updateNote = async (req, res) => {
         });
     } catch (error) {
         console.error('Update note error:', error);
-        res.status(500).json({
-            success: false,
-            message: error.message
-        });
-    }
-};
-
-// Get All Courses for Admin (Super Admin view)
-const getAllCoursesAdmin = async (req, res) => {
-    try {
-        const courses = await Course.find()
-            .populate('admin', 'name email')
-            .populate('semesters')
-            .sort('-createdAt');
-
-        res.json({
-            success: true,
-            courses
-        });
-    } catch (error) {
-        console.error('Get all courses admin error:', error);
         res.status(500).json({
             success: false,
             message: error.message

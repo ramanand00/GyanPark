@@ -1,5 +1,7 @@
+// utils/api.js
 import axios from 'axios';
 
+// Make sure the base URL is correct - remove any trailing slashes
 const API_URL = 'http://localhost:5000/api';
 
 const api = axios.create({

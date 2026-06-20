@@ -11,8 +11,12 @@ const TeacherDashboard = () => {
     const [loading, setLoading] = useState(true);
     const [showCreateModal, setShowCreateModal] = useState(false);
     const [selectedCourse, setSelectedCourse] = useState(null);
+    const [showSemesterModal, setShowSemesterModal] = useState(false);
+    const [showBookModal, setShowBookModal] = useState(false);
     const [showChapterModal, setShowChapterModal] = useState(false);
     const [showNoteModal, setShowNoteModal] = useState(false);
+    const [selectedSemester, setSelectedSemester] = useState(null);
+    const [selectedBook, setSelectedBook] = useState(null);
     const [selectedChapter, setSelectedChapter] = useState(null);
     const [formData, setFormData] = useState({
         title: '',
@@ -21,16 +25,26 @@ const TeacherDashboard = () => {
         level: 'Beginner',
         price: 0,
     });
+    const [semesterData, setSemesterData] = useState({
+        name: '',
+        number: 1,
+        description: '',
+    });
+    const [bookData, setBookData] = useState({
+        title: '',
+        description: '',
+        author: '',
+    });
     const [chapterData, setChapterData] = useState({
         title: '',
         description: '',
-        order: 1
+        order: 1,
     });
     const [noteData, setNoteData] = useState({
         title: '',
         description: '',
         type: 'file',
-        isFree: false
+        isFree: false,
     });
     const [selectedFile, setSelectedFile] = useState(null);
     const navigate = useNavigate();
@@ -43,6 +57,7 @@ const TeacherDashboard = () => {
 
     const fetchCourses = async () => {
         try {
+            // Correct: no '/api' prefix
             const response = await api.get('/teacher/courses');
             setCourses(response.data.courses || []);
         } catch (error) {
@@ -56,6 +71,7 @@ const TeacherDashboard = () => {
     const handleCreateCourse = async (e) => {
         e.preventDefault();
         try {
+            // Correct: no '/api' prefix
             const response = await api.post('/courses', formData);
             setCourses([response.data.course, ...courses]);
             setShowCreateModal(false);
@@ -73,23 +89,65 @@ const TeacherDashboard = () => {
         }
     };
 
-    const handleCreateChapter = async (e) => {
+    const handleCreateSemester = async (e) => {
         e.preventDefault();
         try {
-            const response = await api.post(`/courses/${selectedCourse._id}/chapters`, chapterData);
+            // Correct: no '/api' prefix
+            const response = await api.post(`/courses/${selectedCourse._id}/semesters`, semesterData);
             const updatedCourses = courses.map(course => {
                 if (course._id === selectedCourse._id) {
                     return {
                         ...course,
-                        chapters: [...(course.chapters || []), response.data.chapter]
+                        semesters: [...(course.semesters || []), response.data.semester]
                     };
                 }
                 return course;
             });
             setCourses(updatedCourses);
+            setShowSemesterModal(false);
+            setSemesterData({ name: '', number: 1, description: '' });
+            toast.success('Semester created successfully!');
+            fetchCourses();
+        } catch (error) {
+            console.error('Create semester error:', error);
+            toast.error(error.response?.data?.message || 'Failed to create semester');
+        }
+    };
+
+    const handleCreateBook = async (e) => {
+        e.preventDefault();
+        try {
+            // Correct: no '/api' prefix
+            const response = await api.post(`/semesters/${selectedSemester._id}/books`, bookData);
+            // Update the selected semester with new book
+            const updatedSemester = { ...selectedSemester };
+            updatedSemester.books = [...(selectedSemester.books || []), response.data.book];
+            setSelectedSemester(updatedSemester);
+            
+            setShowBookModal(false);
+            setBookData({ title: '', description: '', author: '' });
+            toast.success('Book created successfully!');
+            fetchCourses();
+        } catch (error) {
+            console.error('Create book error:', error);
+            toast.error(error.response?.data?.message || 'Failed to create book');
+        }
+    };
+
+    const handleCreateChapter = async (e) => {
+        e.preventDefault();
+        try {
+            // Correct: no '/api' prefix
+            const response = await api.post(`/books/${selectedBook._id}/chapters`, chapterData);
+            // Update the selected book with new chapter
+            const updatedBook = { ...selectedBook };
+            updatedBook.chapters = [...(selectedBook.chapters || []), response.data.chapter];
+            setSelectedBook(updatedBook);
+            
             setShowChapterModal(false);
             setChapterData({ title: '', description: '', order: 1 });
             toast.success('Chapter created successfully!');
+            fetchCourses();
         } catch (error) {
             console.error('Create chapter error:', error);
             toast.error(error.response?.data?.message || 'Failed to create chapter');
@@ -111,33 +169,21 @@ const TeacherDashboard = () => {
         formDataFile.append('isFree', noteData.isFree);
 
         try {
-            const response = await api.post(`/chapters/${selectedChapter}/notes`, formDataFile, {
+            // Correct: no '/api' prefix
+            const response = await api.post(`/chapters/${selectedChapter._id}/notes`, formDataFile, {
                 headers: { 'Content-Type': 'multipart/form-data' },
             });
 
-            const updatedCourses = courses.map(course => {
-                if (course._id === selectedCourse._id) {
-                    const updatedChapters = course.chapters.map(ch => {
-                        if (ch._id === selectedChapter) {
-                            return {
-                                ...ch,
-                                notes: [...(ch.notes || []), response.data.note]
-                            };
-                        }
-                        return ch;
-                    });
-                    return {
-                        ...course,
-                        chapters: updatedChapters
-                    };
-                }
-                return course;
-            });
-            setCourses(updatedCourses);
+            // Update the selected chapter with new note
+            const updatedChapter = { ...selectedChapter };
+            updatedChapter.notes = [...(selectedChapter.notes || []), response.data.note];
+            setSelectedChapter(updatedChapter);
+            
             setShowNoteModal(false);
             setNoteData({ title: '', description: '', type: 'file', isFree: false });
             setSelectedFile(null);
             toast.success('Note uploaded successfully!');
+            fetchCourses();
         } catch (error) {
             console.error('Upload note error:', error);
             toast.error(error.response?.data?.message || 'Failed to upload note');
@@ -147,6 +193,7 @@ const TeacherDashboard = () => {
     const handleDeleteCourse = async (courseId) => {
         if (!confirm('Are you sure you want to delete this course and all its content?')) return;
         try {
+            // Correct: no '/api' prefix
             await api.delete(`/courses/${courseId}`);
             setCourses(courses.filter(c => c._id !== courseId));
             toast.success('Course deleted successfully');
@@ -156,51 +203,71 @@ const TeacherDashboard = () => {
         }
     };
 
-    const handleDeleteChapter = async (chapterId) => {
-        if (!confirm('Delete this chapter and all its notes?')) return;
+    const handleDeleteSemester = async (semesterId) => {
+        if (!confirm('Delete this semester and all its content?')) return;
         try {
-            await api.delete(`/chapters/${chapterId}`);
+            // Correct: no '/api' prefix
+            await api.delete(`/semesters/${semesterId}`);
             const updatedCourses = courses.map(course => {
                 if (course._id === selectedCourse._id) {
                     return {
                         ...course,
-                        chapters: course.chapters.filter(c => c._id !== chapterId)
+                        semesters: course.semesters.filter(s => s._id !== semesterId)
                     };
                 }
                 return course;
             });
             setCourses(updatedCourses);
+            toast.success('Semester deleted successfully');
+            fetchCourses();
+        } catch (error) {
+            console.error('Delete semester error:', error);
+            toast.error('Failed to delete semester');
+        }
+    };
+
+    const handleDeleteBook = async (bookId) => {
+        if (!confirm('Delete this book and all its content?')) return;
+        try {
+            // Correct: no '/api' prefix
+            await api.delete(`/books/${bookId}`);
+            const updatedSemester = { ...selectedSemester };
+            updatedSemester.books = updatedSemester.books.filter(b => b._id !== bookId);
+            setSelectedSemester(updatedSemester);
+            toast.success('Book deleted successfully');
+            fetchCourses();
+        } catch (error) {
+            console.error('Delete book error:', error);
+            toast.error('Failed to delete book');
+        }
+    };
+
+    const handleDeleteChapter = async (chapterId) => {
+        if (!confirm('Delete this chapter and all its notes?')) return;
+        try {
+            // Correct: no '/api' prefix
+            await api.delete(`/chapters/${chapterId}`);
+            const updatedBook = { ...selectedBook };
+            updatedBook.chapters = updatedBook.chapters.filter(c => c._id !== chapterId);
+            setSelectedBook(updatedBook);
             toast.success('Chapter deleted successfully');
+            fetchCourses();
         } catch (error) {
             console.error('Delete chapter error:', error);
             toast.error('Failed to delete chapter');
         }
     };
 
-    const handleDeleteNote = async (noteId, chapterId) => {
+    const handleDeleteNote = async (noteId) => {
         if (!confirm('Delete this note?')) return;
         try {
+            // Correct: no '/api' prefix
             await api.delete(`/notes/${noteId}`);
-            const updatedCourses = courses.map(course => {
-                if (course._id === selectedCourse._id) {
-                    const updatedChapters = course.chapters.map(ch => {
-                        if (ch._id === chapterId) {
-                            return {
-                                ...ch,
-                                notes: ch.notes.filter(n => n._id !== noteId)
-                            };
-                        }
-                        return ch;
-                    });
-                    return {
-                        ...course,
-                        chapters: updatedChapters
-                    };
-                }
-                return course;
-            });
-            setCourses(updatedCourses);
+            const updatedChapter = { ...selectedChapter };
+            updatedChapter.notes = updatedChapter.notes.filter(n => n._id !== noteId);
+            setSelectedChapter(updatedChapter);
             toast.success('Note deleted successfully');
+            fetchCourses();
         } catch (error) {
             console.error('Delete note error:', error);
             toast.error('Failed to delete note');
@@ -221,7 +288,7 @@ const TeacherDashboard = () => {
                 <div className="flex justify-between items-center mb-8">
                     <div>
                         <h1 className="text-3xl font-bold text-gray-800">My Courses</h1>
-                        <p className="text-gray-600">Manage your courses, chapters, and content</p>
+                        <p className="text-gray-600">Manage your courses, semesters, books, chapters, and content</p>
                     </div>
                     <button
                         onClick={() => setShowCreateModal(true)}
@@ -262,17 +329,17 @@ const TeacherDashboard = () => {
                                     <p className="text-sm text-gray-600 mt-1 line-clamp-2">{course.description}</p>
                                     <div className="mt-3 flex items-center justify-between text-sm">
                                         <span className="text-indigo-600 font-semibold">${course.price}</span>
-                                        <span className="text-gray-500">{course.chapters?.length || 0} chapters</span>
+                                        <span className="text-gray-500">{course.semesters?.length || 0} semesters</span>
                                     </div>
                                     <div className="mt-4 flex flex-wrap gap-2">
                                         <button
                                             onClick={() => {
                                                 setSelectedCourse(course);
-                                                setShowChapterModal(true);
+                                                setShowSemesterModal(true);
                                             }}
                                             className="flex-1 bg-green-50 text-green-600 px-3 py-1.5 rounded-lg text-sm hover:bg-green-100 transition"
                                         >
-                                            + Chapter
+                                            + Semester
                                         </button>
                                         <button
                                             onClick={() => {
@@ -301,89 +368,6 @@ const TeacherDashboard = () => {
                         ))
                     )}
                 </div>
-
-                {/* Show chapters and notes for selected course */}
-                {selectedCourse && !showChapterModal && !showNoteModal && (
-                    <div className="mt-8 bg-white rounded-xl shadow-lg p-6">
-                        <div className="flex justify-between items-center mb-4">
-                            <h2 className="text-xl font-bold text-gray-800">
-                                Chapters: {selectedCourse.title}
-                            </h2>
-                            <button
-                                onClick={() => setSelectedCourse(null)}
-                                className="text-gray-500 hover:text-gray-700"
-                            >
-                                Close
-                            </button>
-                        </div>
-                        {selectedCourse.chapters?.length === 0 ? (
-                            <p className="text-gray-500">No chapters yet. Add your first chapter!</p>
-                        ) : (
-                            selectedCourse.chapters.map((chapter, index) => (
-                                <div key={chapter._id} className="border-b last:border-b-0 py-4">
-                                    <div className="flex justify-between items-start">
-                                        <div>
-                                            <h3 className="text-lg font-semibold text-gray-800">
-                                                Chapter {index + 1}: {chapter.title}
-                                            </h3>
-                                            {chapter.description && (
-                                                <p className="text-gray-600 text-sm">{chapter.description}</p>
-                                            )}
-                                        </div>
-                                        <div className="flex space-x-2">
-                                            <button
-                                                onClick={() => {
-                                                    setSelectedChapter(chapter._id);
-                                                    setShowNoteModal(true);
-                                                }}
-                                                className="bg-green-50 text-green-600 px-3 py-1 rounded-lg text-sm hover:bg-green-100 transition"
-                                            >
-                                                + Note
-                                            </button>
-                                            <button
-                                                onClick={() => handleDeleteChapter(chapter._id)}
-                                                className="text-red-600 hover:text-red-800 text-sm"
-                                            >
-                                                Delete
-                                            </button>
-                                        </div>
-                                    </div>
-                                    {/* Notes */}
-                                    {chapter.notes && chapter.notes.length > 0 && (
-                                        <div className="mt-3 space-y-2">
-                                            {chapter.notes.map(note => (
-                                                <div key={note._id} className="flex items-center justify-between bg-gray-50 p-3 rounded-lg">
-                                                    <div className="flex items-center space-x-3">
-                                                        <span className="text-xl">
-                                                            {note.type === 'pdf' ? '📄' : 
-                                                             note.type === 'video' ? '🎬' :
-                                                             note.type === 'image' ? '🖼️' : '📁'}
-                                                        </span>
-                                                        <div>
-                                                            <p className="font-medium text-gray-800">{note.title}</p>
-                                                            {note.description && (
-                                                                <p className="text-sm text-gray-500">{note.description}</p>
-                                                            )}
-                                                            <span className="text-xs text-gray-400">
-                                                                {note.downloads || 0} downloads
-                                                            </span>
-                                                        </div>
-                                                    </div>
-                                                    <button
-                                                        onClick={() => handleDeleteNote(note._id, chapter._id)}
-                                                        className="text-red-600 hover:text-red-800 text-sm"
-                                                    >
-                                                        Delete
-                                                    </button>
-                                                </div>
-                                            ))}
-                                        </div>
-                                    )}
-                                </div>
-                            ))
-                        )}
-                    </div>
-                )}
             </div>
 
             {/* Create Course Modal */}
@@ -393,7 +377,7 @@ const TeacherDashboard = () => {
                         <h2 className="text-2xl font-bold text-gray-800 mb-6">Create New Course</h2>
                         <form onSubmit={handleCreateCourse} className="space-y-4">
                             <div>
-                                <label className="block text-gray-700 mb-2">Course Title</label>
+                                <label className="block text-gray-700 mb-2">Course Title *</label>
                                 <input
                                     type="text"
                                     value={formData.title}
@@ -403,7 +387,7 @@ const TeacherDashboard = () => {
                                 />
                             </div>
                             <div>
-                                <label className="block text-gray-700 mb-2">Description</label>
+                                <label className="block text-gray-700 mb-2">Description *</label>
                                 <textarea
                                     value={formData.description}
                                     onChange={(e) => setFormData({ ...formData, description: e.target.value })}
@@ -472,27 +456,37 @@ const TeacherDashboard = () => {
                 </div>
             )}
 
-            {/* Create Chapter Modal */}
-            {showChapterModal && selectedCourse && (
+            {/* Create Semester Modal */}
+            {showSemesterModal && selectedCourse && (
                 <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
                     <div className="bg-white rounded-2xl p-8 max-w-md w-full">
-                        <h2 className="text-2xl font-bold text-gray-800 mb-6">Add Chapter to {selectedCourse.title}</h2>
-                        <form onSubmit={handleCreateChapter} className="space-y-4">
+                        <h2 className="text-2xl font-bold text-gray-800 mb-6">Add Semester to {selectedCourse.title}</h2>
+                        <form onSubmit={handleCreateSemester} className="space-y-4">
                             <div>
-                                <label className="block text-gray-700 mb-2">Chapter Title</label>
+                                <label className="block text-gray-700 mb-2">Semester Name *</label>
                                 <input
                                     type="text"
-                                    value={chapterData.title}
-                                    onChange={(e) => setChapterData({ ...chapterData, title: e.target.value })}
+                                    value={semesterData.name}
+                                    onChange={(e) => setSemesterData({ ...semesterData, name: e.target.value })}
                                     className="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
                                     required
                                 />
                             </div>
                             <div>
-                                <label className="block text-gray-700 mb-2">Description (optional)</label>
+                                <label className="block text-gray-700 mb-2">Semester Number</label>
+                                <input
+                                    type="number"
+                                    value={semesterData.number}
+                                    onChange={(e) => setSemesterData({ ...semesterData, number: parseInt(e.target.value) || 1 })}
+                                    className="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                                    min="1"
+                                />
+                            </div>
+                            <div>
+                                <label className="block text-gray-700 mb-2">Description</label>
                                 <textarea
-                                    value={chapterData.description}
-                                    onChange={(e) => setChapterData({ ...chapterData, description: e.target.value })}
+                                    value={semesterData.description}
+                                    onChange={(e) => setSemesterData({ ...semesterData, description: e.target.value })}
                                     rows="2"
                                     className="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
                                 />
@@ -502,97 +496,13 @@ const TeacherDashboard = () => {
                                     type="submit"
                                     className="flex-1 bg-indigo-600 text-white px-6 py-2 rounded-lg hover:bg-indigo-700 transition"
                                 >
-                                    Create Chapter
+                                    Create Semester
                                 </button>
                                 <button
                                     type="button"
                                     onClick={() => {
-                                        setShowChapterModal(false);
+                                        setShowSemesterModal(false);
                                         setSelectedCourse(null);
-                                    }}
-                                    className="flex-1 bg-gray-300 text-gray-700 px-6 py-2 rounded-lg hover:bg-gray-400 transition"
-                                >
-                                    Cancel
-                                </button>
-                            </div>
-                        </form>
-                    </div>
-                </div>
-            )}
-
-            {/* Upload Note Modal */}
-            {showNoteModal && selectedCourse && (
-                <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-                    <div className="bg-white rounded-2xl p-8 max-w-md w-full">
-                        <h2 className="text-2xl font-bold text-gray-800 mb-6">Upload Note</h2>
-                        <form onSubmit={handleUploadNote} className="space-y-4">
-                            <div>
-                                <label className="block text-gray-700 mb-2">Title</label>
-                                <input
-                                    type="text"
-                                    value={noteData.title}
-                                    onChange={(e) => setNoteData({ ...noteData, title: e.target.value })}
-                                    className="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                                    required
-                                />
-                            </div>
-                            <div>
-                                <label className="block text-gray-700 mb-2">Description</label>
-                                <input
-                                    type="text"
-                                    value={noteData.description}
-                                    onChange={(e) => setNoteData({ ...noteData, description: e.target.value })}
-                                    className="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                                />
-                            </div>
-                            <div>
-                                <label className="block text-gray-700 mb-2">File Type</label>
-                                <select
-                                    value={noteData.type}
-                                    onChange={(e) => setNoteData({ ...noteData, type: e.target.value })}
-                                    className="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                                >
-                                    <option value="pdf">PDF</option>
-                                    <option value="video">Video</option>
-                                    <option value="image">Image</option>
-                                    <option value="file">File</option>
-                                </select>
-                            </div>
-                            <div>
-                                <label className="block text-gray-700 mb-2">File</label>
-                                <input
-                                    type="file"
-                                    onChange={(e) => setSelectedFile(e.target.files[0])}
-                                    className="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                                    accept={noteData.type === 'pdf' ? '.pdf' : 
-                                            noteData.type === 'video' ? 'video/*' :
-                                            noteData.type === 'image' ? 'image/*' : '*'}
-                                    required
-                                />
-                            </div>
-                            <div className="flex items-center">
-                                <input
-                                    type="checkbox"
-                                    id="isFree"
-                                    checked={noteData.isFree}
-                                    onChange={(e) => setNoteData({ ...noteData, isFree: e.target.checked })}
-                                    className="w-4 h-4 text-indigo-600 focus:ring-indigo-500 border-gray-300 rounded"
-                                />
-                                <label htmlFor="isFree" className="ml-2 text-gray-700">Free (available to everyone)</label>
-                            </div>
-                            <div className="flex space-x-4">
-                                <button
-                                    type="submit"
-                                    className="flex-1 bg-indigo-600 text-white px-6 py-2 rounded-lg hover:bg-indigo-700 transition"
-                                >
-                                    Upload
-                                </button>
-                                <button
-                                    type="button"
-                                    onClick={() => {
-                                        setShowNoteModal(false);
-                                        setSelectedCourse(null);
-                                        setSelectedChapter(null);
                                     }}
                                     className="flex-1 bg-gray-300 text-gray-700 px-6 py-2 rounded-lg hover:bg-gray-400 transition"
                                 >

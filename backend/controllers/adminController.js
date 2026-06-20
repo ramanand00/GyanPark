@@ -31,7 +31,7 @@ const getDashboardStats = async (req, res) => {
             Review.countDocuments(),
             Course.countDocuments({ isPublished: true }),
             User.find().sort('-createdAt').limit(5).select('name email role createdAt profilePicture'),
-            Course.find().sort('-createdAt').limit(5).populate('teacher', 'name email'),
+            Course.find().sort('-createdAt').limit(5).populate('admin', 'name email'),
             Admin.countDocuments({ isActive: true })
         ]);
 
@@ -200,10 +200,12 @@ const toggleUserStatus = async (req, res) => {
 // ============== COURSE MANAGEMENT ==============
 const getAllCourses = async (req, res) => {
     try {
+        // Remove the populate('chapters') since it doesn't exist in Course schema
         const courses = await Course.find()
-            .populate('teacher', 'name email')
-            .populate('chapters')
+            .populate('admin', 'name email')
+            .populate('semesters')
             .sort('-createdAt');
+            
         res.json({ success: true, courses });
     } catch (error) {
         console.error('Get courses error:', error);
@@ -214,18 +216,19 @@ const getAllCourses = async (req, res) => {
 const getCourseDetails = async (req, res) => {
     try {
         const course = await Course.findById(req.params.courseId)
-            .populate('teacher', 'name email profilePicture bio')
+            .populate('admin', 'name email')
             .populate({
-                path: 'chapters',
+                path: 'semesters',
                 populate: {
-                    path: 'notes',
+                    path: 'books',
                     populate: {
-                        path: 'teacher',
-                        select: 'name email'
+                        path: 'chapters',
+                        populate: {
+                            path: 'notes'
+                        }
                     }
                 }
-            })
-            .populate('students', 'name email');
+            });
 
         if (!course) {
             return res.status(404).json({ success: false, message: 'Course not found' });
@@ -240,17 +243,27 @@ const getCourseDetails = async (req, res) => {
 
 const updateCourse = async (req, res) => {
     try {
-        const course = await Course.findByIdAndUpdate(
-            req.params.courseId,
-            req.body,
-            { new: true, runValidators: true }
-        ).populate('teacher', 'name email');
-
+        const course = await Course.findById(req.params.courseId);
+        
         if (!course) {
             return res.status(404).json({ success: false, message: 'Course not found' });
         }
 
-        res.json({ success: true, course });
+        // Check if admin owns this course
+        if (course.admin && course.admin.toString() !== req.adminId) {
+            return res.status(403).json({ 
+                success: false, 
+                message: 'You are not authorized to update this course' 
+            });
+        }
+
+        const updatedCourse = await Course.findByIdAndUpdate(
+            req.params.courseId,
+            req.body,
+            { new: true, runValidators: true }
+        );
+
+        res.json({ success: true, course: updatedCourse });
     } catch (error) {
         console.error('Update course error:', error);
         res.status(500).json({ success: false, message: error.message });
@@ -264,8 +277,28 @@ const deleteCourse = async (req, res) => {
             return res.status(404).json({ success: false, message: 'Course not found' });
         }
 
-        await Chapter.deleteMany({ course: course._id });
-        await Note.deleteMany({ course: course._id });
+        // Check if admin owns this course
+        if (course.admin && course.admin.toString() !== req.adminId) {
+            return res.status(403).json({ 
+                success: false, 
+                message: 'You are not authorized to delete this course' 
+            });
+        }
+
+        // Delete all associated data
+        const semesters = await Semester.find({ course: course._id });
+        for (const semester of semesters) {
+            const books = await Book.find({ semester: semester._id });
+            for (const book of books) {
+                const chapters = await Chapter.find({ book: book._id });
+                for (const chapter of chapters) {
+                    await Note.deleteMany({ chapter: chapter._id });
+                }
+                await Chapter.deleteMany({ book: book._id });
+            }
+            await Book.deleteMany({ semester: semester._id });
+        }
+        await Semester.deleteMany({ course: course._id });
         await Review.deleteMany({ course: course._id });
         await Course.findByIdAndDelete(req.params.courseId);
 
@@ -281,6 +314,14 @@ const toggleCoursePublish = async (req, res) => {
         const course = await Course.findById(req.params.courseId);
         if (!course) {
             return res.status(404).json({ success: false, message: 'Course not found' });
+        }
+
+        // Check if admin owns this course
+        if (course.admin && course.admin.toString() !== req.adminId) {
+            return res.status(403).json({ 
+                success: false, 
+                message: 'You are not authorized to modify this course' 
+            });
         }
 
         course.isPublished = !course.isPublished;
@@ -301,6 +342,7 @@ const toggleCoursePublish = async (req, res) => {
 const getAllChapters = async (req, res) => {
     try {
         const chapters = await Chapter.find()
+            .populate('book', 'title')
             .populate('course', 'title')
             .populate('notes')
             .sort('order');
@@ -314,11 +356,12 @@ const getAllChapters = async (req, res) => {
 const getChapterDetails = async (req, res) => {
     try {
         const chapter = await Chapter.findById(req.params.chapterId)
-            .populate('course', 'title teacher')
+            .populate('book', 'title')
+            .populate('course', 'title')
             .populate({
                 path: 'notes',
                 populate: {
-                    path: 'teacher',
+                    path: 'createdBy',
                     select: 'name email'
                 }
             });
@@ -359,7 +402,7 @@ const deleteChapter = async (req, res) => {
         }
 
         await Note.deleteMany({ chapter: chapter._id });
-        await Course.findByIdAndUpdate(chapter.course, {
+        await Book.findByIdAndUpdate(chapter.book, {
             $pull: { chapters: chapter._id }
         });
         await Chapter.findByIdAndDelete(req.params.chapterId);
@@ -376,7 +419,9 @@ const getAllNotes = async (req, res) => {
     try {
         const notes = await Note.find()
             .populate('chapter', 'title')
-            .populate('teacher', 'name email')
+            .populate('book', 'title')
+            .populate('course', 'title')
+            .populate('createdBy', 'name email')
             .sort('-createdAt');
         res.json({ success: true, notes });
     } catch (error) {
@@ -389,7 +434,9 @@ const getNoteDetails = async (req, res) => {
     try {
         const note = await Note.findById(req.params.noteId)
             .populate('chapter', 'title')
-            .populate('teacher', 'name email');
+            .populate('book', 'title')
+            .populate('course', 'title')
+            .populate('createdBy', 'name email');
 
         if (!note) {
             return res.status(404).json({ success: false, message: 'Note not found' });
@@ -406,6 +453,14 @@ const deleteNote = async (req, res) => {
         const note = await Note.findById(req.params.noteId);
         if (!note) {
             return res.status(404).json({ success: false, message: 'Note not found' });
+        }
+
+        // Delete file if exists
+        if (note.url && note.url.startsWith('/uploads/')) {
+            const filePath = path.join(__dirname, '..', note.url);
+            if (fs.existsSync(filePath)) {
+                fs.unlinkSync(filePath);
+            }
         }
 
         await Chapter.findByIdAndUpdate(note.chapter, {
@@ -492,7 +547,6 @@ const createAdmin = async (req, res) => {
 
         const { name, email, password, role, phone, bio, permissions } = req.body;
 
-        // Validate required fields
         if (!name || !email || !password) {
             return res.status(400).json({ 
                 success: false, 
@@ -500,7 +554,6 @@ const createAdmin = async (req, res) => {
             });
         }
 
-        // Check if admin already exists
         const existingAdmin = await Admin.findOne({ email: email.toLowerCase() });
         if (existingAdmin) {
             return res.status(400).json({ 
@@ -509,7 +562,6 @@ const createAdmin = async (req, res) => {
             });
         }
 
-        // Create new admin
         const admin = new Admin({
             name,
             email: email.toLowerCase(),
@@ -531,7 +583,6 @@ const createAdmin = async (req, res) => {
 
         await admin.save();
 
-        // Remove password from response
         const adminResponse = admin.toObject();
         delete adminResponse.password;
 
@@ -548,7 +599,6 @@ const createAdmin = async (req, res) => {
 
 const updateAdmin = async (req, res) => {
     try {
-        // Check if current user has permission to manage admins
         if (!req.permissions?.manageAdmins) {
             return res.status(403).json({ 
                 success: false, 
@@ -563,7 +613,6 @@ const updateAdmin = async (req, res) => {
             return res.status(404).json({ success: false, message: 'Admin not found' });
         }
 
-        // Prevent changing super admin role
         if (admin.role === 'super_admin' && role && role !== 'super_admin') {
             return res.status(400).json({ 
                 success: false, 
@@ -590,7 +639,6 @@ const updateAdmin = async (req, res) => {
 
 const deleteAdmin = async (req, res) => {
     try {
-        // Check if current user has permission to manage admins
         if (!req.permissions?.manageAdmins) {
             return res.status(403).json({ 
                 success: false, 
@@ -603,7 +651,6 @@ const deleteAdmin = async (req, res) => {
             return res.status(404).json({ success: false, message: 'Admin not found' });
         }
 
-        // Prevent deleting super admin
         if (admin.role === 'super_admin') {
             const superAdmins = await Admin.countDocuments({ role: 'super_admin' });
             if (superAdmins <= 1) {
@@ -614,7 +661,6 @@ const deleteAdmin = async (req, res) => {
             }
         }
 
-        // Prevent admin from deleting themselves
         if (admin._id.toString() === req.adminId) {
             return res.status(400).json({ 
                 success: false, 
@@ -632,7 +678,6 @@ const deleteAdmin = async (req, res) => {
 
 const toggleAdminStatus = async (req, res) => {
     try {
-        // Check if current user has permission to manage admins
         if (!req.permissions?.manageAdmins) {
             return res.status(403).json({ 
                 success: false, 
@@ -645,7 +690,6 @@ const toggleAdminStatus = async (req, res) => {
             return res.status(404).json({ success: false, message: 'Admin not found' });
         }
 
-        // Prevent deactivating super admin
         if (admin.role === 'super_admin') {
             const superAdmins = await Admin.countDocuments({ 
                 role: 'super_admin', 
@@ -659,7 +703,6 @@ const toggleAdminStatus = async (req, res) => {
             }
         }
 
-        // Prevent admin from deactivating themselves
         if (admin._id.toString() === req.adminId) {
             return res.status(400).json({ 
                 success: false, 
