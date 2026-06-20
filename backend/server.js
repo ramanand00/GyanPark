@@ -1,182 +1,184 @@
+// server.js
 const express = require('express');
 const cors = require('cors');
 const dotenv = require('dotenv');
+const connectDB = require('./config/db');
+const authRoutes = require('./routes/authRoutes');
+const profileRoutes = require('./routes/profileRoutes');
+const adminRoutes = require('./routes/adminRoutes');
+const { createSuperAdmin } = require('./controllers/adminAuthController');
 const path = require('path');
+const fs = require('fs');
+
+// Create uploads directory if it doesn't exist
+const uploadsDir = path.join(__dirname, 'uploads');
+if (!fs.existsSync(uploadsDir)) {
+    fs.mkdirSync(uploadsDir, { recursive: true });
+}
 
 dotenv.config();
 
 const app = express();
 
-// ================= CORS (SAFE FOR VERCEL + LOCAL) =================
-
+// ============== CORS CONFIGURATION ==============
+// Define allowed origins
 const allowedOrigins = [
     'https://gyan-park.vercel.app',
+    'https://gyan-park-vqx8.vercel.app',
     'http://localhost:5173',
-    'http://localhost:3000'
-];
+    'http://localhost:3000',
+    'http://localhost:5000',
+    process.env.FRONTEND_URL
+].filter(Boolean);
 
-app.use(cors({
+// CORS options
+const corsOptions = {
     origin: function (origin, callback) {
-        // allow mobile apps / postman
-        if (!origin) return callback(null, true);
-
-        if (allowedOrigins.includes(origin)) {
+        // Allow requests with no origin (like mobile apps or curl requests)
+        if (!origin) {
             return callback(null, true);
         }
-
-        // allow but log (prevents crash in production)
-        console.log("Blocked origin:", origin);
-        return callback(null, true);
+        
+        // Allow all origins in development
+        if (process.env.NODE_ENV === 'development') {
+            return callback(null, true);
+        }
+        
+        // Check if origin is allowed
+        if (allowedOrigins.indexOf(origin) !== -1) {
+            callback(null, true);
+        } else {
+            console.log('⚠️ Blocked origin:', origin);
+            // Allow anyway for debugging in production
+            callback(null, true);
+        }
     },
     credentials: true,
-    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization']
-}));
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
+    allowedHeaders: [
+        'Content-Type', 
+        'Authorization', 
+        'X-Requested-With', 
+        'Accept',
+        'Origin'
+    ],
+    exposedHeaders: ['Content-Range', 'X-Content-Range'],
+    maxAge: 86400 // 24 hours
+};
 
-// ❌ IMPORTANT: DO NOT USE app.options('*')
-// This causes your crash in Express 5
+// Apply CORS middleware - THIS IS THE FIXED PART
+app.use(cors(corsOptions));
 
-// ================= MIDDLEWARE =================
+// Handle preflight requests - FIXED: Use app.use instead of app.options('*')
+app.use((req, res, next) => {
+    if (req.method === 'OPTIONS') {
+        res.header('Access-Control-Allow-Origin', req.headers.origin || '*');
+        res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS, PATCH');
+        res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, Accept');
+        res.header('Access-Control-Allow-Credentials', 'true');
+        return res.status(200).end();
+    }
+    next();
+});
+
+// Add CORS headers to all responses
+app.use((req, res, next) => {
+    res.header('Access-Control-Allow-Origin', req.headers.origin || '*');
+    res.header('Access-Control-Allow-Credentials', 'true');
+    res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS, PATCH');
+    res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, Accept');
+    next();
+});
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// ================= ROUTES IMPORT =================
+// Connect to database
+connectDB();
 
-const authRoutes = require('./routes/authRoutes');
-const profileRoutes = require('./routes/profileRoutes');
-const adminRoutes = require('./routes/adminRoutes');
+// Create super admin after database connection
+setTimeout(() => {
+    createSuperAdmin();
+}, 2000);
 
-// ================= STATIC FILES =================
-
+// Serve static files
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
-// ================= HOME PAGE =================
-
-app.get('/', (req, res) => {
-    res.json({
-        message: "GyanPark Backend Running 🚀"
-    });
+// Request logging
+app.use((req, res, next) => {
+    console.log(`${req.method} ${req.url}`);
+    if (req.headers.origin) {
+        console.log('Origin:', req.headers.origin);
+    }
+    next();
 });
 
-// ================= VISUAL TEST PAGE =================
-
-app.get('/api/test', (req, res) => {
-    res.send(`
-    <!DOCTYPE html>
-    <html>
-    <head>
-        <title>GyanPark Backend</title>
-        <style>
-            body{
-                margin:0;
-                height:100vh;
-                display:flex;
-                justify-content:center;
-                align-items:center;
-                background:linear-gradient(135deg,#667eea,#764ba2);
-                font-family:Arial;
-            }
-
-            .card{
-                background:white;
-                padding:40px;
-                border-radius:20px;
-                text-align:center;
-                box-shadow:0 10px 30px rgba(0,0,0,.2);
-            }
-
-            .dot{
-                width:90px;
-                height:90px;
-                background:#22c55e;
-                border-radius:50%;
-                margin:auto;
-                animation:pulse 1.5s infinite;
-            }
-
-            @keyframes pulse{
-                0%{transform:scale(1);}
-                50%{transform:scale(1.2);}
-                100%{transform:scale(1);}
-            }
-
-            h1{
-                color:#333;
-                margin-top:20px;
-            }
-
-            p{
-                color:#666;
-            }
-        </style>
-    </head>
-    <body>
-        <div class="card">
-            <div class="dot"></div>
-            <h1>🚀 Backend Running</h1>
-            <p>GyanPark API is working perfectly</p>
-            <p>Time: ${new Date().toLocaleString()}</p>
-        </div>
-    </body>
-    </html>
-    `);
-});
-
-// ================= HEALTH API =================
-
-app.get('/api/health', (req, res) => {
-    res.json({
-        status: 'healthy',
-        uptime: process.uptime(),
-        timestamp: new Date(),
-        node: process.version
-    });
-});
-
-// ================= API ROUTES =================
-
+// ============== ROUTES ==============
 app.use('/api/auth', authRoutes);
 app.use('/api', profileRoutes);
 app.use('/api/admin', adminRoutes);
 
-// ================= 404 HANDLER =================
-
-app.use((req, res) => {
-    if (req.originalUrl.startsWith('/api')) {
-        return res.status(404).json({
-            success: false,
-            message: 'API route not found'
-        });
-    }
-
-    res.status(404).send("Page not found");
+// Test route
+app.get('/api/test', (req, res) => {
+    res.json({ 
+        message: 'GyanPark Backend is working!', 
+        timestamp: new Date(),
+        environment: process.env.NODE_ENV || 'development',
+        cors: 'enabled'
+    });
 });
 
-// ================= ERROR HANDLER =================
+// Health check route for Vercel
+app.get('/api/health', (req, res) => {
+    res.status(200).json({ 
+        status: 'healthy',
+        timestamp: new Date(),
+        uptime: process.uptime(),
+        cors: 'enabled'
+    });
+});
 
+// CORS test route
+app.get('/api/cors-test', (req, res) => {
+    res.json({
+        success: true,
+        message: 'CORS is working!',
+        origin: req.headers.origin || 'No origin',
+        environment: process.env.NODE_ENV
+    });
+});
+
+// ============== ERROR HANDLING ==============
+
+// 404 handler - Must be after all routes
+app.use((req, res) => {
+    res.status(404).json({ 
+        success: false, 
+        message: 'Route not found',
+        path: req.originalUrl
+    });
+});
+
+// Global error handler
 app.use((err, req, res, next) => {
-    console.error(err);
-
-    res.status(500).json({
-        success: false,
-        message: 'Server Error',
+    console.error('Global error:', err);
+    res.status(500).json({ 
+        success: false, 
+        message: 'Internal server error',
         error: process.env.NODE_ENV === 'development' ? err.message : undefined
     });
 });
 
-// ================= EXPORT FOR VERCEL =================
-
+// Export for Vercel
 module.exports = app;
 
-// ================= LOCAL SERVER ONLY =================
-
+// Only start server if not in Vercel environment
 if (require.main === module) {
     const PORT = process.env.PORT || 5000;
-
     app.listen(PORT, () => {
-        console.log(`🚀 Server running on port ${PORT}`);
-        console.log(`📡 http://localhost:${PORT}/api/test`);
-        console.log(`🌐 http://localhost:${PORT}/`);
+        console.log(`\n🚀 Server is running on port ${PORT}`);
+        console.log(`📡 API URL: http://localhost:${PORT}/api/test`);
+        console.log(`📁 Uploads directory: ${uploadsDir}`);
+        console.log(`✅ Ready to accept requests\n`);
     });
 }
