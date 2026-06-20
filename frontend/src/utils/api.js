@@ -2,7 +2,7 @@
 import axios from 'axios';
 
 // Make sure the base URL is correct - remove any trailing slashes
-const API_URL = 'http://localhost:5000/api';
+const API_URL = 'https://gyan-park-rg8m.vercel.app';
 
 const api = axios.create({
     baseURL: API_URL,
