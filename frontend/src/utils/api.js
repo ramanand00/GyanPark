@@ -2,7 +2,7 @@
 import axios from 'axios';
 
 // Make sure the base URL is correct - remove any trailing slashes
-const API_URL = 'https://gyan-park-rg8m.vercel.app';
+const API_URL = 'https://gyan-park-vqx8.vercel.app/api';
 
 const api = axios.create({
     baseURL: API_URL,
